@@ -40,7 +40,7 @@ fi
 
 fqdn="$hostname.$domain"
 realm_upper=$(echo "$domain" | awk '{print toupper($0)}')
-line_to_add="$ip $fqdn $hostname $domain"
+line_to_add="$ip $fqdn $domain $hostname"
 
 # /etc/hosts
 if grep -Fxq "$line_to_add" /etc/hosts; then
