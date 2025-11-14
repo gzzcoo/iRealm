@@ -11,7 +11,7 @@ Whether you're attacking a domain in Hack The Box, TryHackMe, or conducting a re
 ### Prerequisites
 In the case of installing krb5, if it asks you to enter a REALM, leave it empty and accept
 ```bash
-sudo apt install faketime krb5-config krb5-user -y
+sudo apt install faketime rdate krb5-config krb5-user -y
 ```
 ## Installing the tool
 ```bash
