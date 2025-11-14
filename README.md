@@ -1,4 +1,4 @@
-# iRealm 🏰🔐
+# iRealm 🔐
 
 **iRealm** is a Kerberos-focused automation tool designed to prepare your Kali system for Active Directory interaction. It streamlines the initial setup by handling `/etc/hosts`, time synchronization, and Kerberos configuration — all in one smooth execution.
 
