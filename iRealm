@@ -12,7 +12,14 @@ purple="\e[0;35m\033[1m"
 turquoise="\e[0;36m\033[1m"
 gray="\e[0;37m\033[1m"
 
-figlet -f slant "iRealm" | lolcat
+echo -e "${yellow}"
+echo '  _ _____            _           '
+echo ' (_)  __ \          | |          '
+echo '  _| |__) |___  __ _| |_ __ ___  '
+echo ' | |  _  // _ \/ _` | | `_ ` _ \ '
+echo ' | | | \ \  __/ (_| | | | | | | |'
+echo ' |_|_|  \_\___|\__,_|_|_| |_| |_|'
+echo -e "${end}"
 
 # Check for --force mode
 force=false
@@ -60,11 +67,6 @@ else
     echo -e "\n✅ ${purple}Added to${end} ${turquoise}/etc/hosts${end}${purple}!${end}"
 fi
 
-# Time sync
-echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
-sudo timedatectl set-ntp 0
-sudo ntpdate -s "$ip"
-
 # Backup krb5.conf
 if [[ -f /etc/krb5.conf ]]; then
     sudo cp /etc/krb5.conf /etc/krb5.conf.bak 2>/dev/null
@@ -92,5 +94,11 @@ sudo tee /etc/krb5.conf > /dev/null <<EOF
     .${domain,,} = ${realm_upper}
     ${domain,,} = ${realm_upper}
 EOF
-
 echo -e "\n🎉 ${green}Done! Hosts and Kerberos config updated.${end}\n"
+
+# Time sync
+echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
+current_shell="${SHELL##*/}"
+faketime "$(rdate -n $ip -p | awk '{print $2, $3, $4}' | date -f - "+%Y-%m-%d %H:%M:%S")" "$current_shell"
+
+echo -e "\n Exit..."
