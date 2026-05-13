@@ -13,7 +13,7 @@ turquoise="\e[0;36m\033[1m"
 gray="\e[0;37m\033[1m"
 
 echo -e "${yellow}"
-echo '  _ _____            _           '
+echo '  _ _____            _            '
 echo ' (_)  __ \          | |          '
 echo '  _| |__) |___  __ _| |_ __ ___  '
 echo ' | |  _  // _ \/ _` | | `_ ` _ \ '
@@ -21,37 +21,90 @@ echo ' | | | \ \  __/ (_| | | | | | | |'
 echo ' |_|_|  \_\___|\__,_|_|_| |_| |_|'
 echo -e "${end}"
 
-# Check for --force mode
+# Help Menu
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    echo -e "${purple}Description:${end} A tool to automate /etc/hosts and /etc/krb5.conf configuration for AD CTFs.\n"
+    echo -e "${yellow}Usage:${end} $0 [OPTIONS]"
+    echo -e "\n${turquoise}Options:${end}"
+    echo -e "  -i, --ip <IP>          Target IP address"
+    echo -e "  -d, --domain <FQDN>    Target Domain (e.g., child.inlanefreight.ad)"
+    echo -e "  -n, --hostname <NAME>  Target Hostname (e.g., CHILD-DC)"
+    echo -e "  --cross-forest         Append to krb5.conf for cross-forest trusts instead of overwriting"
+    echo -e "  --sync-time            Attempt to sync time with the DC using rdate/faketime"
+    echo -e "  --force                Run non-interactively (requires -i, -d, -n)"
+    echo -e "  -h, --help             Show this help message\n"
+    exit 0
+fi
+
+# Default Configuration
 force=false
-if [[ "$1" == "--force" ]]; then
-    if [[ -z "$2" || -z "$3" || -z "$4" ]]; then
+cross_forest=false
+sync_time=false
+
+# Argument Parsing
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --force) force=true ;;
+        --cross-forest) cross_forest=true ;;
+        --sync-time) sync_time=true ;;
+        -i|--ip) ip="$2"; shift ;;
+        -d|--domain) domain="$2"; shift ;;
+        -n|--hostname) hostname="$2"; shift ;;
+        *) 
+            # Support for legacy positional syntax: iRealm --force IP DOMAIN HOST
+            if [[ -z "$ip" ]]; then ip="$1"
+            elif [[ -z "$domain" ]]; then domain="$1"
+            elif [[ -z "$hostname" ]]; then hostname="$1"
+            else echo -e "${red}[✘] Unknown argument: $1${end}"; exit 1; fi
+            ;;
+    esac
+    shift
+done
+
+# Validations or Interactive Mode
+if [[ -z "$ip" || -z "$domain" || -z "$hostname" ]]; then
+    if $force; then
         echo -e "\n${red}[✘] Missing arguments in --force mode.${end}"
-        echo -e "\n${yellow}Usage:${end} $0 --force <IP> <DOMAIN> <HOSTNAME>"
+        echo -e "\n${yellow}Usage:${end} $0 [--force] [--cross-forest] [--sync-time] -i <IP> -d <DOMAIN> -n <HOSTNAME>"
         exit 1
     fi
-    force=true
-    ip="$2"
-    domain="$3"
-    hostname="$4"
-else
-    # Inputs
+
     echo -ne "\n${yellow}[!]${end} ${purple}IP address:${end} "
     read ip
 
-    echo -ne "${yellow}[!]${end} ${purple}Domain name (${turquoise}e.g. dominio.htb${end}${purple}):${end} "
+    echo -ne "${yellow}[!]${end} ${purple}Domain name (${turquoise}e.g. child.inlanefreight.ad${end}${purple}):${end} "
     read domain
 
-    echo -ne "${yellow}[!]${end} ${purple}Hostname (${turquoise}e.g. dc${end}${purple}):${end} "
+    echo -ne "${yellow}[!]${end} ${purple}Hostname (${turquoise}e.g. CHILD-DC${end}${purple}):${end} "
     read hostname
+    
+    echo -ne "${yellow}[!]${end} ${purple}Is this a Child/Cross-Forest Domain? (Appends to krb5 instead of replacing) (${turquoise}y/n${end}${purple}):${end} "
+    read resp_cross
+    [[ "$resp_cross" =~ ^[Yy]$ ]] && cross_forest=true
+
+    echo -ne "${yellow}[!]${end} ${purple}Do you want to sync local time with the DC (faketime/rdate)? (${turquoise}y/n${end}${purple}):${end} "
+    read resp_time
+    [[ "$resp_time" =~ ^[Yy]$ ]] && sync_time=true
 fi
 
 fqdn="$hostname.$domain"
 realm_upper=$(echo "$domain" | awk '{print toupper($0)}')
 line_to_add="$ip $fqdn $domain $hostname"
 
-# /etc/hosts
+# 1. /etc/hosts Cleanup and Update
+# Finds and removes previous malformed lines using Regex (case-insensitive) on hostname or FQDN
+if grep -iE "[[:space:]]($hostname|$fqdn)([[:space:]]|$)" /etc/hosts > /dev/null; then
+    echo -e "\n🧹 ${purple}Cleaning up previous malformed or conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
+    
+    # Fix for Docker/Exegol "Device or resource busy" on bind mounts
+    cp /etc/hosts /tmp/hosts.tmp
+    sed -i -E "/[[:space:]]($hostname|$fqdn)([[:space:]]|$)/Id" /tmp/hosts.tmp
+    cat /tmp/hosts.tmp | sudo tee /etc/hosts > /dev/null
+    rm /tmp/hosts.tmp
+fi
+
 if grep -Fxq "$line_to_add" /etc/hosts; then
-    echo -e "\n⚠️ ${purple}Entry already exists in${end} ${turquoise}/etc/hosts${end}${purple}. Skipping...${end}"
+    echo -e "\n⚠️  ${purple}Entry already exists in${end} ${turquoise}/etc/hosts${end}${purple}. Skipping...${end}"
 else
     if ! $force; then
         echo -e "\n💡 ${purple}Entry to add to${end} ${turquoise}/etc/hosts${end}${purple}:${end}"
@@ -67,17 +120,39 @@ else
     echo -e "\n✅ ${purple}Added to${end} ${turquoise}/etc/hosts${end}${purple}!${end}"
 fi
 
-# Backup krb5.conf
+# 2. krb5.conf Backup and Update
 if [[ -f /etc/krb5.conf ]]; then
     sudo cp /etc/krb5.conf /etc/krb5.conf.bak 2>/dev/null
-    echo -e "\n🗂️ ${purple}Backup saved as${end} ${turquoise}/etc/krb5.conf.bak${end}"
+    echo -e "\n🗂️  ${purple}Backup saved as${end} ${turquoise}/etc/krb5.conf.bak${end}"
 fi
 
-# krb5.conf replace
-echo -e "\n🧹 ${purple}Replacing ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
-sudo tee /etc/krb5.conf > /dev/null <<EOF
+if $cross_forest && grep -q "\[realms\]" /etc/krb5.conf; then
+    echo -e "\n🌲 ${purple}Adding Cross-Forest config to ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
+    
+    # We use awk to cleanly inject the new realm into the existing blocks
+    awk -v realm="${realm_upper}" -v fqdn="${fqdn}" -v dom="${domain,,}" '
+    /\[realms\]/ {
+        print
+        print "    " realm " = {"
+        print "        kdc = " fqdn
+        print "        admin_server = " fqdn
+        print "    }"
+        next
+    }
+    /\[domain_realm\]/ {
+        print
+        print "    ." dom " = " realm
+        print "    " dom " = " realm
+        next
+    }
+    1' /etc/krb5.conf > /tmp/krb5_temp.conf && sudo mv /tmp/krb5_temp.conf /etc/krb5.conf
+else
+    echo -e "\n🧹 ${purple}Replacing ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
+    sudo tee /etc/krb5.conf > /dev/null <<EOF
 [libdefaults]
     default_realm = ${realm_upper}
+    dns_lookup_realm = false
+    dns_lookup_kdc = false
     ticket_lifetime = 24h
     renew_lifetime = 7d
     forwardable = true
@@ -87,18 +162,37 @@ sudo tee /etc/krb5.conf > /dev/null <<EOF
     ${realm_upper} = {
         kdc = ${fqdn}
         admin_server = ${fqdn}
-        default_domain = ${domain}
     }
 
 [domain_realm]
     .${domain,,} = ${realm_upper}
     ${domain,,} = ${realm_upper}
 EOF
-echo -e "\n🎉 ${green}Done! Hosts and Kerberos config updated.${end}\n"
+fi
 
-# Time sync
-echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
-current_shell="${SHELL##*/}"
-faketime "$(rdate -n $ip -p | awk '{print $2, $3, $4}' | date -f - "+%Y-%m-%d %H:%M:%S")" "$current_shell"
+echo -e "\n🎉 ${green}Done! Hosts and Kerberos config updated.${end}"
+
+# 3. Optional Time Sync
+if $sync_time; then
+    echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
+    current_shell="${SHELL##*/}"
+    # Added a 5-second timeout in case the rdate port is filtered
+    time_str=$(timeout 5 rdate -n $ip -p 2>/dev/null | awk '{print $2, $3, $4}')
+    if [[ -n "$time_str" ]]; then
+        formatted_time=$(echo "$time_str" | date -f - "+%Y-%m-%d %H:%M:%S")
+        
+        echo -e "\n⚠️  ${yellow}Important Note regarding faketime:${end}"
+        echo -e "   - You will be dropped into a faked time subshell. To return to normal time, type '${red}exit${end}'."
+        echo -e "   - ${red}DO NOT${end} run iRealm with --sync-time again inside this shell to avoid nesting issues."
+        echo -e "   - To apply this exact time sync to a NEW terminal, simply run:"
+        echo -e "     ${turquoise}faketime \"\$(rdate -n $ip -p | awk '{print \$2, \$3, \$4}' | date -f - '+%Y-%m-%d %H:%M:%S')\" $current_shell${end}\n"
+        
+        faketime "$formatted_time" "$current_shell"
+    else
+        echo -e "${red}[✘] Could not fetch time from DC. Check connectivity or firewall.${end}"
+    fi
+else
+    echo -e "\n⏳ ${gray}Time sync skipped.${end}"
+fi
 
 echo -e "\n Exit..."
