@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Author: Gzzcoo
+# Author: gzzcoo
 
 # Colours
 green="\e[0;32m\033[1m"
@@ -27,8 +27,8 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo -e "${yellow}Usage:${end} $0 [OPTIONS]"
     echo -e "\n${turquoise}Options:${end}"
     echo -e "  -i, --ip <IP>          Target IP address"
-    echo -e "  -d, --domain <FQDN>    Target Domain (e.g., child.inlanefreight.ad)"
-    echo -e "  -n, --hostname <NAME>  Target Hostname (e.g., CHILD-DC)"
+    echo -e "  -d, --domain <FQDN>    Target Domain (e.g., domain.htb)"
+    echo -e "  -n, --hostname <NAME>  Target Hostname (e.g., DC01)"
     echo -e "  --cross-forest         Append to krb5.conf for cross-forest trusts instead of overwriting"
     echo -e "  --sync-time            Attempt to sync time with the DC using rdate/faketime"
     echo -e "  --force                Run non-interactively (requires -i, -d, -n)"
@@ -72,13 +72,13 @@ if [[ -z "$ip" || -z "$domain" || -z "$hostname" ]]; then
     echo -ne "\n${yellow}[!]${end} ${purple}IP address:${end} "
     read ip
 
-    echo -ne "${yellow}[!]${end} ${purple}Domain name (${turquoise}e.g. child.inlanefreight.ad${end}${purple}):${end} "
+    echo -ne "${yellow}[!]${end} ${purple}Domain name (${turquoise}e.g. domain.htb${end}${purple}):${end} "
     read domain
 
-    echo -ne "${yellow}[!]${end} ${purple}Hostname (${turquoise}e.g. CHILD-DC${end}${purple}):${end} "
+    echo -ne "${yellow}[!]${end} ${purple}Hostname (${turquoise}e.g. dc${end}${purple}):${end} "
     read hostname
     
-    echo -ne "${yellow}[!]${end} ${purple}Is this a Child/Cross-Forest Domain? (Appends to krb5 instead of replacing) (${turquoise}y/n${end}${purple}):${end} "
+    echo -ne "${yellow}[!]${end} ${purple}Is this an additional domain to append to /etc/krb5.conf? (${turquoise}y/n${end}${purple}):${end} "
     read resp_cross
     [[ "$resp_cross" =~ ^[Yy]$ ]] && cross_forest=true
 
@@ -96,7 +96,6 @@ line_to_add="$ip $fqdn $domain $hostname"
 if grep -iE "[[:space:]]($hostname|$fqdn)([[:space:]]|$)" /etc/hosts > /dev/null; then
     echo -e "\n🧹 ${purple}Cleaning up previous malformed or conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
     
-    # Fix for Docker/Exegol "Device or resource busy" on bind mounts
     cp /etc/hosts /tmp/hosts.tmp
     sed -i -E "/[[:space:]]($hostname|$fqdn)([[:space:]]|$)/Id" /tmp/hosts.tmp
     cat /tmp/hosts.tmp | sudo tee /etc/hosts > /dev/null
@@ -129,7 +128,6 @@ fi
 if $cross_forest && grep -q "\[realms\]" /etc/krb5.conf; then
     echo -e "\n🌲 ${purple}Adding Cross-Forest config to ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
     
-    # We use awk to cleanly inject the new realm into the existing blocks
     awk -v realm="${realm_upper}" -v fqdn="${fqdn}" -v dom="${domain,,}" '
     /\[realms\]/ {
         print
