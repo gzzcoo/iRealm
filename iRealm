@@ -90,9 +90,14 @@ realm_upper=$(echo "$domain" | awk '{print toupper($0)}')
 line_to_add="$ip $fqdn $domain $hostname"
 
 # 1. /etc/hosts Cleanup and Update
+if [[ -f /etc/hosts ]]; then
+    sudo cp /etc/hosts /etc/hosts.bak 2>/dev/null
+    echo -e "\n🗂️  ${purple}Backup saved as${end} ${turquoise}/etc/hosts.bak${end}"
+fi
+
 # Finds and removes previous malformed lines using Regex (case-insensitive) on hostname or FQDN
 if grep -iE "[[:space:]]($hostname|$fqdn)([[:space:]]|$)" /etc/hosts > /dev/null; then
-    echo -e "\n🧹 ${purple}Cleaning up previous malformed or conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
+    echo -e "🧹 ${purple}Cleaning up previous malformed or conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
     
     cp /etc/hosts /tmp/hosts.tmp
     sed -i -E "/[[:space:]]($hostname|$fqdn)([[:space:]]|$)/Id" /tmp/hosts.tmp
@@ -101,7 +106,7 @@ if grep -iE "[[:space:]]($hostname|$fqdn)([[:space:]]|$)" /etc/hosts > /dev/null
 fi
 
 if grep -Fxq "$line_to_add" /etc/hosts; then
-    echo -e "\n⚠️  ${purple}Entry already exists in${end} ${turquoise}/etc/hosts${end}${purple}. Skipping...${end}"
+    echo -e "⚠️  ${purple}Entry already exists in${end} ${turquoise}/etc/hosts${end}${purple}. Skipping...${end}"
 else
     if ! $force; then
         echo -e "\n💡 ${purple}Entry to add to${end} ${turquoise}/etc/hosts${end}${purple}:${end}"
@@ -114,7 +119,7 @@ else
         fi
     fi
     echo "$line_to_add" | sudo tee -a /etc/hosts > /dev/null
-    echo -e "\n✅ ${purple}Added to${end} ${turquoise}/etc/hosts${end}${purple}!${end}"
+    echo -e "✅ ${purple}Added to${end} ${turquoise}/etc/hosts${end}${purple}!${end}"
 fi
 
 # 2. krb5.conf Backup and Update
@@ -124,7 +129,7 @@ if [[ -f /etc/krb5.conf ]]; then
 fi
 
 if $cross_forest && grep -q "\[realms\]" /etc/krb5.conf; then
-    echo -e "\n🌲 ${purple}Adding Cross-Forest config to ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
+    echo -e "🌲 ${purple}Adding Cross-Forest config to ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
     
     awk -v realm="${realm_upper}" -v fqdn="${fqdn}" -v dom="${domain,,}" '
     /\[realms\]/ {
@@ -143,7 +148,7 @@ if $cross_forest && grep -q "\[realms\]" /etc/krb5.conf; then
     }
     1' /etc/krb5.conf > /tmp/krb5_temp.conf && sudo mv /tmp/krb5_temp.conf /etc/krb5.conf
 else
-    echo -e "\n🧹 ${purple}Replacing ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
+    echo -e "🧹 ${purple}Replacing ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
     sudo tee /etc/krb5.conf > /dev/null <<EOF
 [libdefaults]
     default_realm = ${realm_upper}
