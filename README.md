@@ -35,19 +35,19 @@ You will be prompted to enter the Target IP, Domain, Hostname, and choose whethe
 ### Non-Interactive (Silent) Mode
 Perfect for quick executions or aliases. Use the `--force` flag along with `-i`, `-d`, and `-n`.
 ```bash
-iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC --force
+iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC01 --force
 ```
 
 ### Cross-Forest Setup
 If you are adding a child domain or pivoting across a forest trust, use the `--cross-forest` flag. This safely **appends** the new realm to your existing `/etc/krb5.conf` using `awk` instead of overwriting your parent domain config!
 ```bash
-iRealm -i 10.129.229.201 -d child.inlanefreight.ad -n CHILD-DC --cross-forest --force
+iRealm -i 172.16.10.3 -d megacorp.ad -n DC01 --cross-forest --force
 ```
 
 ### Optional Time Sync
 Add `--sync-time` to automatically fetch the DC's time using `rdate` and drop you into an isolated `faketime` subshell. This prevents Kerberos clock skew errors without messing with your host's actual clock.
 ```bash
-iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC --sync-time --force
+iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC01 --sync-time --force
 ```
 
 ## 🚀 Features
