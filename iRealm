@@ -13,7 +13,7 @@ turquoise="\e[0;36m\033[1m"
 gray="\e[0;37m\033[1m"
 
 echo -e "${yellow}"
-echo '  _ _____            _            '
+echo '  _ _____            _             '
 echo ' (_)  __ \          | |          '
 echo '  _| |__) |___  __ _| |_ __ ___  '
 echo ' | |  _  // _ \/ _` | | `_ ` _ \ '
@@ -51,11 +51,9 @@ while [[ "$#" -gt 0 ]]; do
         -d|--domain) domain="$2"; shift ;;
         -n|--hostname) hostname="$2"; shift ;;
         *) 
-            # Support for legacy positional syntax: iRealm --force IP DOMAIN HOST
-            if [[ -z "$ip" ]]; then ip="$1"
-            elif [[ -z "$domain" ]]; then domain="$1"
-            elif [[ -z "$hostname" ]]; then hostname="$1"
-            else echo -e "${red}[✘] Unknown argument: $1${end}"; exit 1; fi
+            echo -e "${red}[✘] Unknown argument: $1${end}"
+            echo -e "${yellow}Use -h or --help for usage information.${end}"
+            exit 1 
             ;;
     esac
     shift
