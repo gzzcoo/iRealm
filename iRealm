@@ -177,8 +177,8 @@ echo -e "\n🎉 ${green}Done! Hosts and Kerberos config updated.${end}"
 if $sync_time; then
     echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
     current_shell="${SHELL##*/}"
-    # Added a 5-second timeout in case the rdate port is filtered
-    time_str=$(timeout 5 rdate -n $ip -p 2>/dev/null | awk '{print $2, $3, $4}')
+    # Added a 60-second timeout in case the rdate port is filtered
+    time_str=$(timeout 60 rdate -n $ip -p 2>/dev/null | awk '{print $2, $3, $4}')
     if [[ -n "$time_str" ]]; then
         formatted_time=$(echo "$time_str" | date -f - "+%Y-%m-%d %H:%M:%S")
         
