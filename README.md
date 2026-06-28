@@ -16,7 +16,7 @@ sudo apt install faketime rdate krb5-config krb5-user -y
 
 ### Installing the tool
 ```bash
-wget [https://raw.githubusercontent.com/Gzzcoo/iRealm/main/iRealm](https://raw.githubusercontent.com/Gzzcoo/iRealm/main/iRealm) -O iRealm
+wget https://raw.githubusercontent.com/Gzzcoo/iRealm/main/iRealm -O iRealm
 chmod +x iRealm
 sudo mv iRealm /usr/local/bin/iRealm
 ```
@@ -39,7 +39,7 @@ iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC01 --force
 ```
 
 ### Cross-Forest Setup
-If you are adding a child domain or pivoting across a forest trust, use the `--cross-forest` flag. This safely **appends** the new realm to your existing `/etc/krb5.conf` using `awk` instead of overwriting your parent domain config!
+If you are adding a child domain or pivoting across a forest trust, use the `--cross-forest` flag. This safely **appends** the new realm to your existing `/etc/krb5.conf` using `awk` instead of overwriting your parent domain config. It also updates `default_realm` to the newly added realm and prevents duplicate entries if the domain is already configured.
 ```bash
 iRealm -i 172.16.10.3 -d megacorp.ad -n DC01 --cross-forest --force
 ```
@@ -50,13 +50,19 @@ Add `--sync-time` to automatically fetch the DC's time using `rdate` and drop yo
 iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC01 --sync-time --force
 ```
 
+### Time Sync via Proxy (TCP Mode)
+When you need to sync time through a SOCKS proxy (e.g., via proxychains), use `--tcp-sync` instead. This uses RFC868 over TCP instead of SNTP/UDP, making it compatible with proxychains.
+```bash
+proxychains -q iRealm -i 10.10.10.10 -d inlanefreight.ad -n DC01 --tcp-sync --force
+```
+
 ## 🚀 Features
 
-  - **Smart `/etc/hosts` Management:** Uses case-insensitive regex to find and clean up previous malformed manual entries before adding the correct IP, FQDN, and hostname.
-  - **Cross-Forest Support:** Safely injects new realms into existing Kerberos configurations without destroying existing setups.
+  - **Smart `/etc/hosts` Management:** Cleans up previous entries matching the FQDN (case-insensitive), avoiding conflicts when multiple domains share the same short hostname across forests.
+  - **Cross-Forest Support:** Safely injects new realms into existing Kerberos configurations without destroying existing setups. Automatically detects and skips duplicate realm entries.
   - **Container Safe:** Engineered to bypass the classic `Device or resource busy` error on bind mounts, making it **fully compatible with Docker and Exegol environments**.
-  - **Kerberos Clock Sync:** Automates DC time fetching and isolates the time spoofing inside a subshell.
-  - **Failsafe Backups:** Creates an automatic backup of your previous Kerberos config (`/etc/krb5.conf.bak`).
+  - **Kerberos Clock Sync:** Automates DC time fetching and isolates the time spoofing inside a subshell. Supports both UDP (direct) and TCP (proxychains-compatible) modes.
+  - **Failsafe Backups:** Creates automatic backups of both `/etc/hosts.bak` and `/etc/krb5.conf.bak` before any modification.
 
 ## 📌 Why use iRealm?
 
@@ -66,3 +72,4 @@ Working in Active Directory environments often requires Kerberos to be properly 
   - Correct DNS resolution to the DC
   - Accurate system time alignment
   - Valid and structured Kerberos realm configuration
+
