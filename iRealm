@@ -30,7 +30,8 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo -e "  -d, --domain <FQDN>    Target Domain (e.g., domain.htb)"
     echo -e "  -n, --hostname <NAME>  Target Hostname (e.g., DC01)"
     echo -e "  --cross-forest         Append to krb5.conf for cross-forest trusts instead of overwriting"
-    echo -e "  --sync-time            Attempt to sync time with the DC using rdate/faketime"
+    echo -e "  --sync-time            Attempt to sync time with the DC using rdate (SNTP/UDP) + faketime"
+    echo -e "  --tcp-sync             Same as --sync-time but uses TCP (RFC868) — compatible with proxychains"
     echo -e "  --force                Run non-interactively (requires -i, -d, -n)"
     echo -e "  -h, --help             Show this help message\n"
     exit 0
@@ -40,6 +41,7 @@ fi
 force=false
 cross_forest=false
 sync_time=false
+tcp_sync=false
 
 # Argument Parsing
 while [[ "$#" -gt 0 ]]; do
@@ -47,6 +49,7 @@ while [[ "$#" -gt 0 ]]; do
         --force) force=true ;;
         --cross-forest) cross_forest=true ;;
         --sync-time) sync_time=true ;;
+        --tcp-sync) tcp_sync=true; sync_time=true ;;
         -i|--ip) ip="$2"; shift ;;
         -d|--domain) domain="$2"; shift ;;
         -n|--hostname) hostname="$2"; shift ;;
@@ -95,12 +98,12 @@ if [[ -f /etc/hosts ]]; then
     echo -e "\n🗂️  ${purple}Backup saved as${end} ${turquoise}/etc/hosts.bak${end}"
 fi
 
-# Finds and removes previous malformed lines using Regex (case-insensitive) on hostname or FQDN
-if grep -iE "[[:space:]]($hostname|$fqdn)([[:space:]]|$)" /etc/hosts > /dev/null; then
-    echo -e "🧹 ${purple}Cleaning up previous malformed or conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
+# Finds and removes previous lines matching the FQDN (case-insensitive)
+if grep -iE "[[:space:]]$fqdn([[:space:]]|$)" /etc/hosts > /dev/null; then
+    echo -e "🧹 ${purple}Cleaning up previous conflicting entries in${end} ${turquoise}/etc/hosts${end}${purple}...${end}"
     
     cp /etc/hosts /tmp/hosts.tmp
-    sed -i -E "/[[:space:]]($hostname|$fqdn)([[:space:]]|$)/Id" /tmp/hosts.tmp
+    sed -i -E "/[[:space:]]$fqdn([[:space:]]|$)/Id" /tmp/hosts.tmp
     cat /tmp/hosts.tmp | sudo tee /etc/hosts > /dev/null
     rm /tmp/hosts.tmp
 fi
@@ -131,19 +134,32 @@ fi
 if $cross_forest && grep -q "\[realms\]" /etc/krb5.conf; then
     echo -e "🌲 ${purple}Adding Cross-Forest config to ${end}${turquoise}/etc/krb5.conf${end}${purple}...${end}"
     
-    awk -v realm="${realm_upper}" -v fqdn="${fqdn}" -v dom="${domain,,}" '
-    /\[realms\]/ {
-        print
-        print "    " realm " = {"
-        print "        kdc = " fqdn
-        print "        admin_server = " fqdn
-        print "    }"
+    realm_exists=$(grep -cP "^\s+${realm_upper}\s*=" /etc/krb5.conf 2>/dev/null || true)
+    dom_exists=$(grep -cP "^\s+\.${domain,,}\s+=\s+${realm_upper}\s*$" /etc/krb5.conf 2>/dev/null || true)
+
+    awk -v realm="${realm_upper}" -v fqdn="${fqdn}" -v dom="${domain,,}" -v add_realm="${realm_exists}" -v add_dom="${dom_exists}" '
+    /^\[libdefaults\]/ { in_libdefaults=1 }
+    in_libdefaults && /default_realm/ {
+        print "    default_realm = " realm
+        in_libdefaults=0
         next
     }
-    /\[domain_realm\]/ {
+    /^\[realms\]/ {
         print
-        print "    ." dom " = " realm
-        print "    " dom " = " realm
+        if (add_realm == 0) {
+            print "    " realm " = {"
+            print "        kdc = " fqdn
+            print "        admin_server = " fqdn
+            print "    }"
+        }
+        next
+    }
+    /^\[domain_realm\]/ {
+        print
+        if (add_dom == 0) {
+            print "    ." dom " = " realm
+            print "    " dom " = " realm
+        }
         next
     }
     1' /etc/krb5.conf > /tmp/krb5_temp.conf && sudo mv /tmp/krb5_temp.conf /etc/krb5.conf
@@ -177,8 +193,15 @@ echo -e "\n🎉 ${green}Done! Hosts and Kerberos config updated.${end}"
 if $sync_time; then
     echo -e "\n⏰ ${purple}Syncing time with DC...${end}"
     current_shell="${SHELL##*/}"
-    # Added a 60-second timeout in case the rdate port is filtered
-    time_str=$(timeout 60 rdate -n $ip -p 2>/dev/null | awk '{print $2, $3, $4}')
+    rdate_flags="-n"
+    rdate_hint="-n"
+    if $tcp_sync; then
+        echo -e "   ${yellow}(using TCP — compatible with proxychains)${end}"
+        rdate_flags=""
+        rdate_hint=""
+    fi
+    # Added a 80-second timeout in case the rdate port is filtered
+    time_str=$(timeout 80 rdate $rdate_flags $ip -p 2>/dev/null | awk '{print $2, $3, $4}')
     if [[ -n "$time_str" ]]; then
         formatted_time=$(echo "$time_str" | date -f - "+%Y-%m-%d %H:%M:%S")
         
@@ -186,7 +209,7 @@ if $sync_time; then
         echo -e "   - You will be dropped into a faked time subshell. To return to normal time, type '${red}exit${end}'."
         echo -e "   - ${red}DO NOT${end} run iRealm with --sync-time again inside this shell to avoid nesting issues."
         echo -e "   - To apply this exact time sync to a NEW terminal, simply run:"
-        echo -e "     ${turquoise}faketime \"\$(rdate -n $ip -p | awk '{print \$2, \$3, \$4}' | date -f - '+%Y-%m-%d %H:%M:%S')\" $current_shell${end}\n"
+        echo -e "     ${turquoise}faketime \"\$(rdate $rdate_hint $ip -p | awk '{print \$2, \$3, \$4}' | date -f - '+%Y-%m-%d %H:%M:%S')\" $current_shell${end}\n"
         
         faketime "$formatted_time" "$current_shell"
     else
